@@ -1,3 +1,6 @@
+// NOTE: compile using gcc with '-fplan9-extensions' enabled
+
+
 //////////////////// useful macros ////////////////////////////////////////////
 
 #define _TOSTR(x) #x
@@ -42,17 +45,17 @@
         }; \
     }
 
-#define MAKE_VTBL(class_name) struct CONCAT(class_name, __vtbl) CONCAT(class_name, __vtbl__instance)
-#define INST_VTBL(class_name, ptr) (((ptr)->vfptr) = &CONCAT(class_name, __vtbl__instance))
-
-#define INST_VTBL_SINGLETON(class_name, ptr, vtbl_data...) \
+#define INST_VTBL_SINGLETON(ptr, vtbl_data...) \
     do { \
-        static MAKE_VTBL(class_name) = vtbl_data; \
-        INST_VTBL(class_name, ptr); \
+        static typeof(*((ptr)->vfptr)) __c_with_virtual_class__vtbl_singleton = vtbl_data; \
+        (ptr)->vfptr = &__c_with_virtual_class__vtbl_singleton; \
     } while (0) \
 
 #define BASECLASS_CAST(ptr) (&(ptr)->baseclass)
-
+#define VFUNC(this, func, ...) ({ \
+        typeof(this) __c_with_virtual_class__temp_this = (this); \
+        __c_with_virtual_class__temp_this->vfptr->func(__c_with_virtual_class__temp_this, ##__VA_ARGS__); \
+    })
 
 
 
@@ -104,7 +107,7 @@ void class2_hello(THIS)
 
 void class1_ctor(struct class1 *this)
 {
-    INST_VTBL_SINGLETON(class1, this, {
+    INST_VTBL_SINGLETON(this, {
         .hello = class1_hello,
     });
     this->a = 100;
@@ -113,7 +116,7 @@ void class1_ctor(struct class1 *this)
 
 void class2_ctor(struct class2 *this)
 {
-    INST_VTBL_SINGLETON(class2, this, {
+    INST_VTBL_SINGLETON(this, {
         .hello = class2_hello,
     });
     this->a = 101;
@@ -129,7 +132,7 @@ void class3_test(THIS, int arg)
 
 void class3_ctor(struct class3 *this)
 {
-    INST_VTBL_SINGLETON(class3, this, {
+    INST_VTBL_SINGLETON(this, {
         .hello = class1_hello, // use base class virtual function
         .test = class3_test,
     });
@@ -148,9 +151,9 @@ int main()
     class2_ctor(&c2);
     class3_ctor(&c3);
     
-    (&c1)->vfptr->hello(&c1); // output line 1
-    (&c2)->vfptr->hello(&c2); // output line 2
-    (&c3)->vfptr->hello(&c3); // output line 3
+    VFUNC(&c1, hello); // equals to (&c1)->vfptr->hello(&c1); // output line 1
+    VFUNC(&c2, hello); // equals to (&c2)->vfptr->hello(&c2); // output line 2
+    VFUNC(&c3, hello); // equals to (&c3)->vfptr->hello(&c3); // output line 3
 
     
     struct class1 *p1;
@@ -161,9 +164,9 @@ int main()
     p2 = &c2;
     p1 = BASECLASS_CAST(p2);
     
-    p1->vfptr->hello(p1); // output line 4
-    p2->vfptr->hello(p2); // output line 5
-    p3->vfptr->test(p3, 12345); // output line 6
+    VFUNC(p1, hello); // equals to p1->vfptr->hello(p1); // output line 4
+    VFUNC(p2, hello); // equals to p2->vfptr->hello(p2); // output line 5
+    VFUNC(p3, test, 12345); // equals to p3->vfptr->test(p3, 12345); // output line 6
     
     
     return 0;
