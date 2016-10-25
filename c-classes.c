@@ -12,13 +12,36 @@
 #define CONCAT5(a, b, c, d, e) CONCAT(CONCAT4(a, b, c, d), e)
 #define CONCAT6(a, b, c, d, e, f) CONCAT(CONCAT5(a, b, c, d, e), f)
 
-//////////////////// write virtual class in pure C ////////////////////////////
-//////////////////// need  -fplan9-extensions /////////////////////////////////
 
+
+//////////////////// class manipulate macros //////////////////////////////////
+
+#define BASECLASS_CAST(ptr) (&(ptr)->baseclass)
 #define THIS void *vthis
 #define DECLARE_THIS(type) struct type *this = vthis
 
-#define DECLARE_BASE_CLASS(base_class_name, base_class_vfunction, base_class_structure) \
+
+
+///////////// write derived class (without virtual funtcion) in pure C ////////
+
+#define DECLARE_BASE_CLASS(base_class_name, base_class_structure...) \
+    struct base_class_name { \
+        base_class_structure; \
+    }
+#define DECLARE_DERIVED_CLASS(derived_class_name, base_class_name, derived_class_structure...) \
+    struct derived_class_name { \
+        union { \
+            struct base_class_name; \
+            struct base_class_name baseclass; \
+        }; \
+        derived_class_structure; \
+    }
+
+
+
+//////////////////// write virtual class in pure C ////////////////////////////
+
+#define DECLARE_BASE_VCLASS(base_class_name, base_class_vfunction, base_class_structure...) \
     struct base_class_name { \
         struct CONCAT(base_class_name, __vtbl) { \
             base_class_vfunction; \
@@ -28,7 +51,7 @@
         }; \
     }
 
-#define DECLARE_DERIVED_CLASS(derived_class_name, base_class_name, derived_class_vfunction, derived_class_structure) \
+#define DECLARE_DERIVED_VCLASS(derived_class_name, base_class_name, derived_class_vfunction, derived_class_structure...) \
     struct derived_class_name { \
         union { \
             struct base_class_name baseclass; \
@@ -51,7 +74,6 @@
         (ptr)->vfptr = &__c_with_virtual_class__vtbl_singleton; \
     } while (0) \
 
-#define BASECLASS_CAST(ptr) (&(ptr)->baseclass)
 #define VFUNC(this, func, ...) ({ \
         typeof(this) __c_with_virtual_class__temp_this = (this); \
         __c_with_virtual_class__temp_this->vfptr->func(__c_with_virtual_class__temp_this, ##__VA_ARGS__); \
@@ -64,28 +86,32 @@
 
 #include <stdio.h>
 
-DECLARE_BASE_CLASS(class1, struct {
+DECLARE_BASE_VCLASS(class1, struct {
     // here are virtual functions
     void (*hello)(THIS);
+    
+    // NOTE: you can't type comma without parenthesis in vfunc list
+    //       for example, the following statment will cause an error
+    //   void (*hello)(THIS), (*hello2)(THIS);
+    //                      ^ no comma here!
 }, struct {
     // here are member variables
-    int a;
-    int b;
+    int a, b;
 });
 
-DECLARE_DERIVED_CLASS(class2, class1, struct {
+DECLARE_DERIVED_VCLASS(class2, class1, struct {
     // no new virtual functions
 }, struct {
     int c;
 });
 
-DECLARE_DERIVED_CLASS(class3, class1, struct {
+DECLARE_DERIVED_VCLASS(class3, class1, struct {
     void (*test)(THIS, int);
 }, struct {
     // no new member variables
 });
 
-DECLARE_DERIVED_CLASS(class4, class3, struct {
+DECLARE_DERIVED_VCLASS(class4, class3, struct {
     // no new virtual functions
 }, struct {
     int d;
@@ -141,6 +167,19 @@ void class3_ctor(struct class3 *this)
 }
 
 
+DECLARE_BASE_CLASS(simple_class1, struct {
+    int x, y, z;
+});
+DECLARE_DERIVED_CLASS(simple_class2, simple_class1, struct {
+    int u, v, w;
+});
+
+void simple_class1_print(struct simple_class1 *this)
+{
+    printf("x=%d y=%d z=%d\n", this->x, this->y, this->z);
+}
+
+
 int main()
 {
     struct class1 c1;
@@ -168,6 +207,15 @@ int main()
     VFUNC(p2, hello); // equals to p2->vfptr->hello(p2); // output line 5
     VFUNC(p3, test, 12345); // equals to p3->vfptr->test(p3, 12345); // output line 6
     
+    struct simple_class1 sc1;
+    struct simple_class2 sc2;
+
+    sc1.x = sc1.y = sc1.z = 12345;
+    sc2.x = sc2.y = sc2.z = sc2.u = sc2.v = sc2.w = 23456;
+    
+    simple_class1_print(&sc1); // output line 7
+    simple_class1_print(&sc2); // auto pointer cast // output line 8
+    simple_class1_print(BASECLASS_CAST(&sc2)); // output line 9
     
     return 0;
 }
